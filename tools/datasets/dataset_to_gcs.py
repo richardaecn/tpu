@@ -183,7 +183,7 @@ def _process_image(filename, coder):
     width: integer, image width in pixels.
   """
   # Read the image file.
-  with tf.gfile.FastGFile(filename, 'rb') as f:
+  with tf.gfile.FastGFile(filename, 'r') as f:
     image_data = f.read()
 
   # Clean the dirty data.
@@ -265,7 +265,7 @@ def convert_to_tf_records(raw_data_dir):
   # Glob all the training files
   training_files = []
   training_labels = []
-  for line in open(os.path.join(raw_data_dir, 'train.txt'), 'rb'):
+  for line in open(os.path.join(raw_data_dir, 'train.txt'), 'r'):
     line_list = line.strip().split(': ')
     training_files.append(os.path.join(raw_data_dir, line_list[0]))
     training_labels.append(int(line_list[1]))
@@ -279,7 +279,7 @@ def convert_to_tf_records(raw_data_dir):
   # Glob all the validation files
   validation_files = []
   validation_labels = []
-  for line in open(os.path.join(raw_data_dir, 'val.txt'), 'rb'):
+  for line in open(os.path.join(raw_data_dir, 'val.txt'), 'r'):
     line_list = line.strip().split(': ')
     validation_files.append(os.path.join(raw_data_dir, line_list[0]))
     validation_labels.append(int(line_list[1]))
