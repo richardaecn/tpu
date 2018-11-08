@@ -96,12 +96,6 @@ class ImageNetTFExampleInput(object):
         'image/encoded': tf.FixedLenFeature((), tf.string, ''),
         'image/format': tf.FixedLenFeature((), tf.string, 'jpeg'),
         'image/class/label': tf.FixedLenFeature([], tf.int64, -1),
-        'image/class/text': tf.FixedLenFeature([], tf.string, ''),
-        'image/object/bbox/xmin': tf.VarLenFeature(dtype=tf.float32),
-        'image/object/bbox/ymin': tf.VarLenFeature(dtype=tf.float32),
-        'image/object/bbox/xmax': tf.VarLenFeature(dtype=tf.float32),
-        'image/object/bbox/ymax': tf.VarLenFeature(dtype=tf.float32),
-        'image/object/class/label': tf.VarLenFeature(dtype=tf.int64),
     }
 
     parsed = tf.parse_single_example(value, keys_to_features)
@@ -113,9 +107,8 @@ class ImageNetTFExampleInput(object):
         image_size=self.image_size,
         use_bfloat16=self.use_bfloat16)
 
-    # Subtract one so that labels are in [0, 1000).
     label = tf.cast(
-        tf.reshape(parsed['image/class/label'], shape=[]), dtype=tf.int32) - 1
+        tf.reshape(parsed['image/class/label'], shape=[]), dtype=tf.int32)
 
     return image, label
 
