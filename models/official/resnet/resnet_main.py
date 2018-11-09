@@ -20,6 +20,7 @@ from __future__ import print_function
 
 import os
 import time
+import numpy as np
 
 from absl import flags
 import absl.logging as _logging  # pylint: disable=unused-import
@@ -227,10 +228,20 @@ LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
 # ImageNet
 MEAN_RGB = [0.485 * 255, 0.456 * 255, 0.406 * 255]
 STDDEV_RGB = [0.229 * 255, 0.224 * 255, 0.225 * 255]
+IMG_NUM_PER_CLASS = [int(line.strip()) for line in open(
+      'data/ILSVRC2012/img_num_per_cls.txt', 'r')]
 
-# # iNat	
+# # iNat
 # MEAN_RGB = [0.466 * 255, 0.471 * 255, 0.380 * 255]	
 # STDDEV_RGB = [0.195 * 255, 0.194 * 255, 0.192 * 255]
+# IMG_NUM_PER_CLASS = [int(line.strip()) for line in open(
+#       'data/inat2017/img_num_per_cls.txt', 'r')]
+
+# Normalized weights based on inverse number of effective data per class.
+EFFECTIVE_NUM = 1.0 - np.power(FLAGS.beta, IMG_NUM_PER_CLASS)
+WEIGHTS = 1.0 / np.array(EFFECTIVE_NUM)
+WEIGHTS = WEIGHTS / np.sum(WEIGHTS) * FLAGS.num_label_classes
+print(WEIGHTS)
 
 
 def learning_rate_schedule(current_epoch):
@@ -370,7 +381,7 @@ def resnet_model_fn(features, labels, mode, params):
   # Calculate loss, which includes classification loss and L2 regularization.
   one_hot_labels = tf.one_hot(labels, FLAGS.num_label_classes)
 
-  weights = tf.cast(FLAGS.weights, dtype=tf.float32)
+  weights = tf.cast(WEIGHTS, dtype=tf.float32)
   weights = tf.expand_dims(weights, 0)
   weights = tf.tile(weights, [tf.shape(one_hot_labels)[0], 1]) * one_hot_labels
   weights = tf.reduce_sum(weights, axis=1)
@@ -563,14 +574,6 @@ def _select_tables_from_flags():
   ]
 
 def main(unused_argv):
-  img_num_per_cls = [int(line.strip()) for line in open(
-      'data/ILSVRC2012/img_num_per_cls.txt', 'r')]
-  effective_num = 1.0 - np.power(FLAGS.beta, img_num_per_cls)
-  weights = 1.0 / np.array(effective_num)
-  weights = weights / np.sum(weights) * FLAGS.num_label_classes
-  FLAGS.weights = weights
-  print(FLAGS.weights)
-
   tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
       FLAGS.tpu if (FLAGS.tpu or FLAGS.use_tpu) else '',
       zone=FLAGS.tpu_zone,
