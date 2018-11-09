@@ -148,14 +148,9 @@ class ImageNetTFExampleInput(object):
     batch_size = params['batch_size']
 
     # TODO(dehao): Replace the following with params['context'].current_host
-    if 'context' in params:
-      current_host = params['context'].current_input_fn_deployment()[1]
-      num_hosts = params['context'].num_hosts
-    else:
-      current_host = 0
-      num_hosts = 1
-
-    dataset = self.make_source_dataset(current_host, num_hosts)
+    current_host = params["context"].current_input_fn_deployment()[1]
+    dataset = self.make_source_dataset(current_host,
+                                       params['context'].num_hosts)
 
     # Use the fused map-and-batch operation.
     #
@@ -264,8 +259,7 @@ class ImageNetInput(ImageNetTFExampleInput):
 
     # Shuffle the filenames to ensure better randomization.
     file_pattern = os.path.join(
-        self.data_dir, 'train_tfrecord/*' if self.is_training else
-        'validation_tfrecord/*')
+        self.data_dir, 'train-*' if self.is_training else 'validation-*')
 
     # For multi-host training, we want each hosts to always process the same
     # subset of files.  Each host only sees a subset of the entire dataset,

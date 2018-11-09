@@ -23,7 +23,7 @@ Sample usage:
 
 ```
 python tfrecords_to_bigtable.py --source_glob=gs://my_bucket/path/to/files/* \
-   --bigtable_instance=my_bigtable_instance --bigtable_table=my_table_name   \
+   --bigtable_instance=my_bigtable_instance --bigtable=my_table_name         \
    [ --project=my_project_id_or_number ] [ --num_records=50000 ]  # Optional.
 ```
 
@@ -59,8 +59,7 @@ interactive python terminal:
 ```
 python
 >>> import tensorflow as tf
->>> from tensorflow.contrib.data.python.ops.writers import \
-  TFRecordWriter
+>>> from tensorflow.contrib.data.python.ops.writers import TFRecordWriter
 >>> ds = tf.data.Dataset.range(10)
 >>> ds = ds.map(lambda x: tf.as_string(x))
 >>> writer = TFRecordWriter('/tmp/testdata.tfrecord')
@@ -81,7 +80,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from absl import app
 from absl import flags
 from six.moves.urllib.request import Request
 from six.moves.urllib.request import urlopen
@@ -91,8 +89,8 @@ import tensorflow as tf
 flags.DEFINE_string('source_glob', None, 'The source TFRecord files to read '
                     'from and push into Cloud Bigtable.')
 flags.DEFINE_string('bigtable_instance', None, 'The Cloud Bigtable instance.')
-flags.DEFINE_string('bigtable_table', None, 'The table within the instance to '
-                    'write to.')
+flags.DEFINE_string('bigtable', None, 'The table within the instance to write '
+                    'to.')
 flags.DEFINE_string('project', None, 'The Project to use. (Optional if running '
                     'on a Compute Engine VM, as it can be auto-determined from '
                     'the metadata service.)')
@@ -102,11 +100,11 @@ flags.DEFINE_integer(
     'not be smaller than the actual number of records.')
 flags.DEFINE_integer('num_parallel_reads', None, 'The number of parallel reads '
                      'from the source file system.')
-flags.DEFINE_string('column_family', 'tfexample',
-                    'The column family to write the data into.')
-flags.DEFINE_string('column', 'example',
-                    'The column name (qualifier) to write the data into.')
-flags.DEFINE_string('row_prefix', 'train_', 'A prefix for each row key.')
+flags.DEFINE_string('column_family', 'ds', 'The column family to write the '
+                    'data into.')
+flags.DEFINE_string('column', 'd', 'The column name (qualifier) to write the '
+                    'data into.')
+flags.DEFINE_string('row_prefix', None, 'A prefix for each row key.')
 
 FLAGS = flags.FLAGS
 
@@ -173,7 +171,7 @@ def make_bigtable_client_and_table():
   instance = FLAGS.bigtable_instance
   if instance is None:
     raise ValueError('Please set an instance on the command line.')
-  table_name = FLAGS.bigtable_table
+  table_name = FLAGS.bigtable
   if table_name is None:
     raise ValueError('Please set a table on the command line.')
   client = tf.contrib.cloud.BigtableClient(project, instance)
@@ -204,4 +202,4 @@ def main(argv):
 
 
 if __name__ == '__main__':
-  app.run(main)
+  tf.app.run(main)

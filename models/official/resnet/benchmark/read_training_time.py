@@ -18,7 +18,6 @@ from __future__ import print_function
 
 import datetime
 
-from absl import app
 from absl import flags
 
 import tensorflow as tf
@@ -91,4 +90,4 @@ def main(unused_argv):
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)
-  app.run(main)
+  tf.app.run()

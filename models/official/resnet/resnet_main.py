@@ -21,7 +21,6 @@ from __future__ import print_function
 import os
 import time
 
-from absl import app
 from absl import flags
 import absl.logging as _logging  # pylint: disable=unused-import
 import tensorflow as tf
@@ -29,11 +28,8 @@ from official.resnet import imagenet_input
 from official.resnet import lars_util
 from official.resnet import resnet_model
 from tensorflow.contrib import summary
-from tensorflow.contrib.tpu.python.tpu import async_checkpoint
 from tensorflow.contrib.training.python.training import evaluation
-from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.estimator import estimator
-
 
 FLAGS = flags.FLAGS
 
@@ -183,11 +179,6 @@ flags.DEFINE_string(
     default=None,
     help=('The directory where the exported SavedModel will be stored.'))
 
-flags.DEFINE_bool(
-    'export_to_tpu', default=False,
-    help=('Whether to export additional metagraph with "serve, tpu" tags'
-          ' in addition to "serve" only metagraph.'))
-
 flags.DEFINE_string(
     'precision', default='bfloat16',
     help=('Precision to use; one of: {bfloat16, float32}'))
@@ -221,9 +212,6 @@ flags.DEFINE_float('poly_rate', default=0.0,
 flags.DEFINE_bool(
     'use_cache', default=True, help=('Enable cache for training input.'))
 
-flags.DEFINE_bool(
-    'use_async_checkpointing', default=False, help=('Enable async checkpoint'))
-
 # Learning rate schedule
 LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
     (1.0, 5), (0.1, 30), (0.01, 60), (0.001, 80)
@@ -231,13 +219,8 @@ LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
 
 # The input tensor is in the range of [0, 255], we need to scale them to the
 # range of [0, 1]
-# ImageNet
 MEAN_RGB = [0.485 * 255, 0.456 * 255, 0.406 * 255]
 STDDEV_RGB = [0.229 * 255, 0.224 * 255, 0.225 * 255]
-
-# iNat
-# MEAN_RGB = [0.466 * 255, 0.471 * 255, 0.380 * 255]
-# STDDEV_RGB = [0.195 * 255, 0.194 * 255, 0.192 * 255]
 
 
 def learning_rate_schedule(current_epoch):
@@ -517,31 +500,21 @@ def _select_tables_from_flags():
       for p in (train_prefix, eval_prefix)
   ]
 
-
 def main(unused_argv):
   tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
       FLAGS.tpu if (FLAGS.tpu or FLAGS.use_tpu) else '',
       zone=FLAGS.tpu_zone,
       project=FLAGS.gcp_project)
 
-  if FLAGS.use_async_checkpointing:
-    save_checkpoints_steps = None
-  else:
-    save_checkpoints_steps = max(100, FLAGS.iterations_per_loop)
   config = tf.contrib.tpu.RunConfig(
       cluster=tpu_cluster_resolver,
       model_dir=FLAGS.model_dir,
-      save_checkpoints_steps=save_checkpoints_steps,
+      save_checkpoints_steps=max(600, FLAGS.iterations_per_loop),
       log_step_count_steps=FLAGS.log_step_count_steps,
-      session_config=tf.ConfigProto(
-          graph_options=tf.GraphOptions(
-              rewrite_options=rewriter_config_pb2.RewriterConfig(
-                  disable_meta_optimizer=True))),
       tpu_config=tf.contrib.tpu.TPUConfig(
           iterations_per_loop=FLAGS.iterations_per_loop,
           num_shards=FLAGS.num_cores,
-          per_host_input_for_training=tf.contrib.tpu.InputPipelineConfig
-          .PER_HOST_V2))  # pylint: disable=line-too-long
+          per_host_input_for_training=tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2))  # pylint: disable=line-too-long
 
   resnet_classifier = tf.contrib.tpu.TPUEstimator(
       use_tpu=FLAGS.use_tpu,
@@ -549,7 +522,7 @@ def main(unused_argv):
       config=config,
       train_batch_size=FLAGS.train_batch_size,
       eval_batch_size=FLAGS.eval_batch_size,
-      export_to_tpu=FLAGS.export_to_tpu)
+      export_to_tpu=False)
   assert FLAGS.precision == 'bfloat16' or FLAGS.precision == 'float32', (
       'Invalid value for --precision flag; must be bfloat16 or float32.')
   tf.logging.info('Precision: %s', FLAGS.precision)
@@ -629,24 +602,16 @@ def main(unused_argv):
     start_timestamp = time.time()  # This time will include compilation time
 
     if FLAGS.mode == 'train':
-      hooks = []
-      if FLAGS.use_async_checkpointing:
-        hooks.append(
-            async_checkpoint.AsyncCheckpointSaverHook(
-                checkpoint_dir=FLAGS.model_dir,
-                save_steps=max(100, FLAGS.iterations_per_loop)))
       resnet_classifier.train(
-          input_fn=imagenet_train.input_fn,
-          max_steps=FLAGS.train_steps,
-          hooks=hooks)
+          input_fn=imagenet_train.input_fn, max_steps=FLAGS.train_steps)
 
     else:
       assert FLAGS.mode == 'train_and_eval'
       while current_step < FLAGS.train_steps:
         # Train for up to steps_per_eval number of steps.
         # At the end of training, a checkpoint will be written to --model_dir.
-        next_checkpoint = min(current_step + FLAGS.steps_per_eval,
-                              FLAGS.train_steps)
+        next_checkpoint = int(min(current_step + FLAGS.steps_per_eval,
+                              FLAGS.train_steps))
         resnet_classifier.train(
             input_fn=imagenet_train.input_fn, max_steps=next_checkpoint)
         current_step = next_checkpoint
@@ -673,11 +638,11 @@ def main(unused_argv):
       # The guide to serve a exported TensorFlow model is at:
       #    https://www.tensorflow.org/serving/serving_basic
       tf.logging.info('Starting to export model.')
-      resnet_classifier.export_saved_model(
+      resnet_classifier.export_savedmodel(
           export_dir_base=FLAGS.export_dir,
           serving_input_receiver_fn=imagenet_input.image_serving_input_fn)
 
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)
-  app.run(main)
+  tf.app.run()

@@ -219,13 +219,9 @@ func (g *TPUCP) parentPath() string {
 
 var legacyNetwork = net.IPv4(10, 240, 0, 0)
 
-func (g *TPUCP) selectCIDRBlock(routes []*compute.Route, cidrBlockSize uint, network string) (string, error) {
+func (g *TPUCP) selectCidrBlock(routes []*compute.Route, cidrBlockSize uint) (string, error) {
 	cidrBlocks := make([]*net.IPNet, 0, len(routes))
 	for _, i := range routes {
-		// Filter out network ranges that are not peered with our GCP VPC Network.
-		if !strings.HasSuffix(i.Network, network) {
-			continue
-		}
 		_, ipNet, err := net.ParseCIDR(i.DestRange)
 		if err != nil {
 			return "", err
@@ -262,11 +258,7 @@ func (g *TPUCP) selectCIDRBlock(routes []*compute.Route, cidrBlockSize uint, net
 			if err != nil {
 				return "", fmt.Errorf("error parsing constructed CIDR: %v", err)
 			}
-			split := strings.Split(newCidr.String(), "/")
-			if len(split) != 2 {
-				return "", fmt.Errorf("error parsing cidr block %q", newCidr.String())
-			}
-			return split[0], nil
+			return newCidr.String(), nil
 		}
 	}
 	return "", errors.New("no available CIDR blocks found")
@@ -299,7 +291,7 @@ func (g *TPUCP) cidrBlockSize(hardwareType string) (ones uint, err error) {
 }
 
 // CreateInstance creates the Cloud TPU with an API call to the TPU control plane.
-func (g *TPUCP) CreateInstance(ctx context.Context, version string, preemptible bool, hardwareType, network string) (LongRunningOperation, error) {
+func (g *TPUCP) CreateInstance(ctx context.Context, version string, preemptible bool, hardwareType string) (LongRunningOperation, error) {
 	routeItems := make([]*compute.Route, 0)
 	err := g.compute.Routes.List(g.config.Project).Pages(ctx, func(routeList *compute.RouteList) error {
 		routeItems = append(routeItems, routeList.Items...)
@@ -313,7 +305,7 @@ func (g *TPUCP) CreateInstance(ctx context.Context, version string, preemptible 
 	if err != nil {
 		return nil, err
 	}
-	cidrBlock, err := g.selectCIDRBlock(routeItems, cidrBlockSize, network)
+	cidrBlock, err := g.selectCidrBlock(routeItems, cidrBlockSize)
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +316,6 @@ func (g *TPUCP) CreateInstance(ctx context.Context, version string, preemptible 
 		Description:       "A Cloud TPU created with the ctpu tool.",
 		TensorflowVersion: version,
 		SchedulingConfig:  &tpu.SchedulingConfig{Preemptible: preemptible},
-		Network:           network,
 	}
 	req := g.nodes.Create(g.parentPath(), &node)
 	op, err := req.NodeId(g.config.FlockName).Do()

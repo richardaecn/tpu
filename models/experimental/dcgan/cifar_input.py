@@ -62,7 +62,8 @@ class InputFunction(object):
     dataset = tf.data.TFRecordDataset([self.data_file])
     dataset = dataset.map(parser, num_parallel_calls=batch_size)
     dataset = dataset.prefetch(4 * batch_size).cache().repeat()
-    dataset = dataset.batch(batch_size, drop_remainder=True)
+    dataset = dataset.apply(
+        tf.contrib.data.batch_and_drop_remainder(batch_size))
     dataset = dataset.prefetch(2)
     images, labels = dataset.make_one_shot_iterator().get_next()
 

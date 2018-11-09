@@ -40,7 +40,7 @@ flags.DEFINE_string(
 flags.DEFINE_string(
     'local_scratch_dir', None, 'Scratch directory path for temporary files.')
 flags.DEFINE_string(
-    'raw_data_dir', None, 'Directory path for raw Imagenet dataset. '
+    'raw_data_dir', None, 'Directory path for raw dataset. '
     'Should have train and validation subdirectories inside it.')
 flags.DEFINE_boolean(
     'gcs_upload', True, 'Set to false to not upload to gcs.')
@@ -84,7 +84,7 @@ def _convert_to_example(filename, image_buffer, label, height, width):
   Returns:
     Example proto
   """
-  image_format = 'JPEG'
+  image_format = b'JPEG'
 
   example = tf.train.Example(features=tf.train.Features(feature={
       'image/height': _int64_feature(height),
@@ -183,7 +183,7 @@ def _process_image(filename, coder):
     width: integer, image width in pixels.
   """
   # Read the image file.
-  with tf.gfile.FastGFile(filename, 'r') as f:
+  with tf.gfile.FastGFile(filename, 'rb') as f:
     image_data = f.read()
 
   # Clean the dirty data.
@@ -260,7 +260,7 @@ def _process_dataset(filenames, labels, output_directory, prefix, num_shards):
 
 
 def convert_to_tf_records(raw_data_dir):
-  """Convert the Imagenet dataset into TF-Record dumps."""
+  """Convert the dataset into TF-Record dumps."""
 
   # Glob all the training files
   training_files = []

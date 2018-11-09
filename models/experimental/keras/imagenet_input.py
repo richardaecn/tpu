@@ -25,6 +25,24 @@ import tensorflow as tf
 import resnet_preprocessing
 
 
+def image_serving_input_fn():
+  """Serving input fn for raw images."""
+
+  def _preprocess_image(image_bytes):
+    """Preprocess a single raw image."""
+    image = resnet_preprocessing.preprocess_image(
+        image_bytes=image_bytes, is_training=False)
+    return image
+
+  image_bytes_list = tf.placeholder(
+      shape=[None],
+      dtype=tf.string,
+  )
+  images = tf.map_fn(
+      _preprocess_image, image_bytes_list, back_prop=False, dtype=tf.float32)
+  return tf.estimator.export.ServingInputReceiver(
+      images, {'image_bytes': image_bytes_list})
+
 class ImageNetInput(object):
   """Generates ImageNet input_fn for training or evaluation.
 
@@ -134,6 +152,17 @@ class ImageNetInput(object):
     # Prefetch overlaps in-feed with training
     dataset = dataset.prefetch(tf.contrib.data.AUTOTUNE)
     return dataset
+
+  # TODO(xiejw): Remove this generator once evaluation with dataset is ready.
+  def evaluation_generator(self, master):
+    """Creates a generator for evaluation."""
+    next_batch = self.input_fn().make_one_shot_iterator().get_next()
+    with tf.Session(master) as sess:
+      while True:
+        try:
+          yield sess.run(next_batch)
+        except tf.errors.OutOfRangeError:
+          return
 
   def input_fn_null(self):
     """Input function which provides null (black) images."""

@@ -1,10 +1,10 @@
 # Tools for preparing datasets
 
 ## imagenet_to_gcs.py
-Downloads [Image-Net](http://image-net.org/) dataset, transforms data into
-`TFRecords`, and uploads to the specified GCS bucket. The script also has flags to
-skip the GCS bucket upload and utilize an existing download of ImageNet.
-Common to the various options are the following commands:
+Downloads the [Image-Net](http://image-net.org/) dataset, transforms data into
+TFRecords, and uploads to the specified GCS bucket. The script also has a flag
+to skip the GCS bucket upload as well as utilize an existing download of
+Image-Net. Common to the various options are the following commands:
 
 ```bash
 pip install gcloud google-cloud-storage
@@ -12,9 +12,8 @@ pip install tensorflow
 ```
 
 **Image-Net to GCS**
-
-Downloads the files from [Image-Net](http://image-net.org/), processes them into
-`TFRecords` and uploads them to the specified GCS bucket.
+Downloads the files from [Image-Net](http://image-net.org/) and processes them
+into TFRecords and uploads them to the specified GCS bucket.
 
 ```bash
 python imagenet_to_gcs.py \
@@ -26,9 +25,8 @@ python imagenet_to_gcs.py \
 ```
 
 **Image-Net to local only**
-
 Downloads the files from [Image-Net](http://image-net.org/) and processes them
-into `TFRecords` but does not upload them to GCS.
+into TFRecords but does not upload them to GCS.
 
 ```bash
 # `local_scratch_dir` will be where the TFRecords are stored.`
@@ -39,7 +37,6 @@ python imagenet_to_gcs.py \
 ```
 
 **Image-Net with existing .tar files from Image-Net**
-
 Utilizes already downloaded .tar files of the images
 
 

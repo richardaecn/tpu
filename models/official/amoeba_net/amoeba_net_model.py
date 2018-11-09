@@ -26,8 +26,11 @@ import tensorflow as tf
 
 import inception_preprocessing
 import model_builder
-import model_specs
 
+# Dataset constants
+NUM_TRAIN_IMAGES = 1281167
+NUM_EVAL_IMAGES = 50000
+LABEL_CLASSES = 1001
 
 # Random cropping constants
 _RESIZE_SIDE_MIN = 300
@@ -51,9 +54,7 @@ def imagenet_hparams():
       ##########################################################################
 
       image_size=299,
-      num_train_images=1281167,
-      num_eval_images=50000,
-      num_label_classes=1001,
+
       ##########################################################################
       # Architectural params. ##################################################
       ##########################################################################
@@ -61,8 +62,6 @@ def imagenet_hparams():
       # The total number of regular cells (summed across all stacks). Reduction
       # cells are not included.
       num_cells=18,
-      reduction_size=256,
-      stem_reduction_size=32,
 
       # How many reduction cells to use between the stacks of regular cells.
       num_reduction_layers=2,
@@ -99,7 +98,6 @@ def imagenet_hparams():
       #      lowest dropout,
       # -v3: Do both v1 and v2.
       drop_connect_version='v1',
-      drop_path_burn_in_steps=0,
       # `drop_connect_condition` determines under what conditions drop_connect
       # is used:
       # -identity: Dropout all paths except identity connections,
@@ -119,7 +117,6 @@ def imagenet_hparams():
       lr_decay_value=0.97,
       lr_num_epochs_per_decay=2.4,
       lr_warmup_epochs=3.0,
-      weight_decay=4e-05,
 
       # Optimizer.
       optimizer='rmsprop',  # 'sgd', 'mom', 'adam' or 'rmsprop'
@@ -147,42 +144,8 @@ def imagenet_hparams():
       ##########################################################################
       # Other params. ##########################################################
       ##########################################################################
-      num_shards=None,
-      distributed_group_size=1,
+
       use_tpu=False)
-
-
-def build_hparams(cell_name='amoeba_net_d'):
-  """Build tf.Hparams for training Amoeba Net.
-
-  Args:
-    cell_name:         Which of the cells in model_specs.py to use to build the
-                       amoebanet neural network; the cell names defined in that
-                       module correspond to architectures discovered by an
-                       evolutionary search described in
-                       https://arxiv.org/abs/1802.01548.
-
-  Returns:
-    A set of tf.HParams suitable for Amoeba Net training.
-  """
-  hparams = imagenet_hparams()
-  operations, hiddenstate_indices, used_hiddenstates = (
-      model_specs.get_normal_cell(cell_name))
-  hparams.add_hparam('normal_cell_operations', operations)
-  hparams.add_hparam('normal_cell_hiddenstate_indices',
-                     hiddenstate_indices)
-  hparams.add_hparam('normal_cell_used_hiddenstates',
-                     used_hiddenstates)
-  operations, hiddenstate_indices, used_hiddenstates = (
-      model_specs.get_reduction_cell(cell_name))
-  hparams.add_hparam('reduction_cell_operations',
-                     operations)
-  hparams.add_hparam('reduction_cell_hiddenstate_indices',
-                     hiddenstate_indices)
-  hparams.add_hparam('reduction_cell_used_hiddenstates',
-                     used_hiddenstates)
-  hparams.set_hparam('data_format', 'NHWC')
-  return hparams
 
 
 def formatted_hparams(hparams):
@@ -230,8 +193,7 @@ class AmoebaNetEstimatorModel(object):
 
   def _build_learning_rate_schedule(self, global_step):
     """Build learning rate."""
-    steps_per_epoch = (
-        self.hparams.num_train_images // self.hparams.train_batch_size)
+    steps_per_epoch = NUM_TRAIN_IMAGES // self.hparams.train_batch_size
     lr_warmup_epochs = 0
     if self.hparams.lr_decay_method == 'exponential':
       lr_warmup_epochs = self.hparams.lr_warmup_epochs
@@ -253,16 +215,16 @@ class AmoebaNetEstimatorModel(object):
     """Build a network that returns loss and logits from features and labels."""
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
     is_predict = (mode == tf.estimator.ModeKeys.PREDICT)
-    steps_per_epoch = float(
-        self.hparams.num_train_images) / self.hparams.train_batch_size
+    steps_per_epoch = float(NUM_TRAIN_IMAGES) / self.hparams.train_batch_size
     num_total_steps = int(steps_per_epoch * self.hparams.num_epochs)
-    self.hparams.set_hparam('drop_path_burn_in_steps', num_total_steps)
+    if getattr(self.hparams, 'num_total_steps', None) is None:
+      self.hparams.add_hparam('num_total_steps', num_total_steps)
+    else:
+      self.hparams.set_hparam('num_total_steps', num_total_steps)
 
     hparams = copy.deepcopy(self.hparams)
     if not is_training:
       hparams.set_hparam('use_aux_head', False)
-      hparams.set_hparam('weight_decay', 0)
-      hparams.set_hparam('use_bp16', False)
 
     tf.logging.info(
         'Amoeba net received hparams for {}:\n{}'.format(
@@ -270,10 +232,10 @@ class AmoebaNetEstimatorModel(object):
             formatted_hparams(hparams)))
 
     logits, end_points = model_builder.build_network(
-        features, hparams.num_label_classes, is_training, hparams)
+        features, LABEL_CLASSES, is_training, hparams)
 
     if not is_predict:
-      labels = tf.one_hot(labels, hparams.num_label_classes)
+      labels = tf.one_hot(labels, LABEL_CLASSES)
       loss = model_builder.build_softmax_loss(
           logits,
           end_points,
@@ -347,8 +309,7 @@ class AmoebaNetEstimatorModel(object):
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
     eval_active = (mode == tf.estimator.ModeKeys.EVAL)
     is_predict = (mode == tf.estimator.ModeKeys.PREDICT)
-    if is_training:
-      features = tf.transpose(features, [3, 0, 1, 2])  # HWCN to NHWC
+    features = tf.transpose(features, [3, 0, 1, 2])  # HWCN to NHWC
     loss, logits = self._build_network(features, labels, mode)
 
     if is_predict:
@@ -448,12 +409,11 @@ class InputPipeline(object):
     is_training: `bool` for whether the input is for training
   """
 
-  def __init__(self, is_training, data_dir, hparams, eval_from_hub=False):
+  def __init__(self, is_training, data_dir, hparams):
     self.is_training = is_training
     self.data_dir = data_dir
     self.hparams = hparams
     self.num_classes = 1001
-    self.eval_from_hub = eval_from_hub
 
   def _dataset_parser(self, serialized_proto):
     """Parse an Imagenet record from value."""
@@ -491,8 +451,6 @@ class InputPipeline(object):
         output_height=self.hparams.image_size,
         output_width=self.hparams.image_size,
         is_training=self.is_training,
-        # If eval_from_hub, do not scale the images during preprocessing.
-        scaled_images=not self.eval_from_hub,
         bbox=bbox)
 
     label = tf.cast(
@@ -548,10 +506,9 @@ class InputPipeline(object):
             self._dataset_parser, batch_size=batch_size,
             num_parallel_batches=8, drop_remainder=True))
 
-    if self.is_training:
-      dataset = dataset.map(
-          lambda images, labels: (tf.transpose(images, [1, 2, 3, 0]), labels),
-          num_parallel_calls=8)
+    dataset = dataset.map(
+        lambda images, labels: (tf.transpose(images, [1, 2, 3, 0]), labels),
+        num_parallel_calls=8)
 
     dataset = dataset.prefetch(32)  # Prefetch overlaps in-feed with training
     return dataset  # Must return the dataset and not tensors for high perf!

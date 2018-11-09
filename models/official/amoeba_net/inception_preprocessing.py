@@ -1,4 +1,4 @@
-# Copyright 2018 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2018 Google. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -200,7 +200,6 @@ def distorted_bounding_box_crop(image,
 
 
 def preprocess_for_train(image, height, width, bbox,
-                         min_object_covered=0.1,
                          fast_mode=True,
                          scope=None,
                          add_image_summaries=True):
@@ -223,9 +222,6 @@ def preprocess_for_train(image, height, width, bbox,
     bbox: 3-D float Tensor of bounding boxes arranged [1, num_boxes, coords]
       where each coordinate is [0, 1) and the coordinates are arranged
       as [ymin, xmin, ymax, xmax].
-    min_object_covered: An optional `float`. Defaults to `0.1`. The cropped
-      area of the image must contain at least this fraction of any bounding box
-      supplied.
     fast_mode: Optional boolean, if True avoids slower transformations (i.e.
       bi-cubic resizing, random_hue or random_contrast).
     scope: Optional scope for name_scope.
@@ -247,11 +243,7 @@ def preprocess_for_train(image, height, width, bbox,
                                                     bbox)
       tf.summary.image('image_with_bounding_boxes', image_with_box)
 
-    distorted_image, distorted_bbox = distorted_bounding_box_crop(
-        image,
-        bbox,
-        min_object_covered=min_object_covered,
-        area_range=(min_object_covered, 1.0))
+    distorted_image, distorted_bbox = distorted_bounding_box_crop(image, bbox)
     # Restore the shape since the dynamic slice based upon the bbox_size loses
     # the third dimension.
     distorted_image.set_shape([None, None, 3])
@@ -293,6 +285,8 @@ def preprocess_for_train(image, height, width, bbox,
     if add_image_summaries:
       tf.summary.image('final_distorted_image',
                        tf.expand_dims(distorted_image, 0))
+    distorted_image = tf.subtract(distorted_image, 0.5)
+    distorted_image = tf.multiply(distorted_image, 2.0)
     return distorted_image
 
 
@@ -332,17 +326,15 @@ def preprocess_for_eval(image, height, width,
       image = tf.image.resize_bilinear(image, [height, width],
                                        align_corners=False)
       image = tf.squeeze(image, [0])
+    image = tf.subtract(image, 0.5)
+    image = tf.multiply(image, 2.0)
     image.set_shape([height, width, 3])
     return image
 
 
-def preprocess_image(image,
-                     output_height,
-                     output_width,
+def preprocess_image(image, output_height, output_width,
                      is_training=False,
-                     scaled_images=True,
                      bbox=None,
-                     min_object_covered=0.1,
                      fast_mode=True,
                      add_image_summaries=False):
   """Pre-process one image for training or evaluation.
@@ -357,14 +349,9 @@ def preprocess_image(image,
     output_width: integer, image expected width.
     is_training: Boolean. If true it would transform an image for train,
       otherwise it would transform it for evaluation.
-    scaled_images: Whether to scale pixel values to the range [-1, 1].
-      If set to false, pixel values are in the range [0, 1].
     bbox: 3-D float Tensor of bounding boxes arranged [1, num_boxes, coords]
       where each coordinate is [0, 1) and the coordinates are arranged as
       [ymin, xmin, ymax, xmax].
-    min_object_covered: An optional `float`. Defaults to `0.1`. The cropped
-      area of the image must contain at least this fraction of any bounding box
-      supplied.
     fast_mode: Optional boolean, if True avoids slower transformations.
     add_image_summaries: Enable image summaries.
 
@@ -375,17 +362,8 @@ def preprocess_image(image,
     ValueError: if user does not provide bounding box
   """
   if is_training:
-    image = preprocess_for_train(
-        image,
-        output_height,
-        output_width,
-        bbox,
-        min_object_covered,
-        fast_mode,
-        add_image_summaries=add_image_summaries)
+    return preprocess_for_train(image, output_height, output_width, bbox,
+                                fast_mode,
+                                add_image_summaries=add_image_summaries)
   else:
-    image = preprocess_for_eval(image, output_height, output_width)
-  if scaled_images:
-    image = tf.subtract(image, 0.5)
-    image = tf.multiply(image, 2.0)
-  return image
+    return preprocess_for_eval(image, output_height, output_width)

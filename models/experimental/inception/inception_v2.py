@@ -21,7 +21,6 @@ from __future__ import print_function
 
 import os
 import time
-from absl import app
 from absl import flags
 import absl.logging as _logging  # pylint: disable=unused-import
 import tensorflow as tf
@@ -57,12 +56,6 @@ flags.DEFINE_string(
 flags.DEFINE_string(
     'model_dir', None,
     'Directory where model output is stored')
-
-flags.DEFINE_string(
-    'export_dir',
-    default=None,
-    help=('The directory where the exported SavedModel will be stored.'))
-
 
 flags.DEFINE_integer(
     'num_shards', 8,
@@ -248,44 +241,6 @@ BATCH_NORM_DECAY = 0.996
 BATCH_NORM_EPSILON = 1e-3
 
 
-def preprocess_raw_bytes(image_bytes, is_training=False, bbox=None):
-  """Preprocesses a raw JPEG image.
-
-  This implementation is shared in common between train/eval pipelines,
-  and when serving the model.
-
-  Args:
-    image_bytes: A string Tensor, containing the encoded JPEG.
-    is_training: Whether or not to preprocess for training.
-    bbox:        In inception preprocessing, this bbox can be used for cropping.
-
-  Returns:
-    A 3-Tensor [height, width, RGB channels] of type float32.
-  """
-
-  image = tf.image.decode_jpeg(image_bytes, channels=3)
-  image = tf.image.convert_image_dtype(image, dtype=tf.float32)
-
-  if FLAGS.preprocessing == 'vgg':
-    image = vgg_preprocessing.preprocess_image(
-        image=image,
-        output_height=FLAGS.height,
-        output_width=FLAGS.width,
-        is_training=is_training,
-        resize_side_min=_RESIZE_SIDE_MIN,
-        resize_side_max=_RESIZE_SIDE_MAX)
-  elif FLAGS.preprocessing == 'inception':
-    image = inception_preprocessing.preprocess_image(
-        image=image,
-        output_height=FLAGS.height,
-        output_width=FLAGS.width,
-        is_training=is_training,
-        bbox=bbox)
-  else:
-    assert False, 'Unknown preprocessing type: %s' % FLAGS.preprocessing
-  return image
-
-
 class InputPipeline(object):
   """Generates ImageNet input_fn for training or evaluation.
 
@@ -350,7 +305,25 @@ class InputPipeline(object):
       bbox = tf.transpose(bbox, [0, 2, 1])
 
     image = features['image/encoded']
-    image = preprocess_raw_bytes(image, is_training=self.is_training, bbox=bbox)
+    image = tf.image.decode_jpeg(image, channels=3)
+    image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+
+    if FLAGS.preprocessing == 'vgg':
+      image = vgg_preprocessing.preprocess_image(
+          image=image,
+          output_height=FLAGS.height,
+          output_width=FLAGS.width,
+          is_training=self.is_training,
+          resize_side_min=_RESIZE_SIDE_MIN,
+          resize_side_max=_RESIZE_SIDE_MAX)
+    elif FLAGS.preprocessing == 'inception':
+      image = inception_preprocessing.preprocess_image(
+          image=image,
+          output_height=FLAGS.height,
+          output_width=FLAGS.width,
+          is_training=self.is_training,
+          bbox=bbox)
+
     label = tf.cast(
         tf.reshape(features['image/class/label'], shape=[]), dtype=tf.int32)
 
@@ -399,7 +372,8 @@ class InputPipeline(object):
 
       dataset = dataset.prefetch(batch_size)
 
-      dataset = dataset.batch(batch_size, drop_remainder=True)
+      dataset = dataset.apply(
+          tf.contrib.data.batch_and_drop_remainder(batch_size))
 
       dataset = dataset.prefetch(2)  # Prefetch overlaps in-feed with training
 
@@ -412,25 +386,6 @@ class InputPipeline(object):
 
     images = tensor_transform_fn(images, params['output_perm'])
     return images, labels
-
-
-def image_serving_input_fn():
-  """Serving input fn for raw images.
-
-  This function is consumed when exporting a SavedModel.
-
-  Returns:
-    A ServingInputReceiver capable of serving MobileNet predictions.
-  """
-
-  image_bytes_list = tf.placeholder(
-      shape=[None],
-      dtype=tf.string,
-  )
-  images = tf.map_fn(
-      preprocess_raw_bytes, image_bytes_list, back_prop=False, dtype=tf.float32)
-  return tf.estimator.export.ServingInputReceiver(
-      images, {'image_bytes': image_bytes_list})
 
 
 def tensor_transform_fn(data, perm):
@@ -461,10 +416,6 @@ def inception_model_fn(features, labels, mode, params):
   num_classes = FLAGS.num_classes
   is_training = (mode == tf.estimator.ModeKeys.TRAIN)
   is_eval = (mode == tf.estimator.ModeKeys.EVAL)
-
-  if isinstance(features, dict):
-    features = features['feature']
-
   features = tensor_transform_fn(features, params['input_perm'])
 
   if FLAGS.clear_update_collections:
@@ -488,18 +439,14 @@ def inception_model_fn(features, labels, mode, params):
           is_training=is_training,
           replace_separable_convolution=True)
 
-  predictions = {
+  predictions = end_points
+  predictions.update({
       'classes': tf.argmax(input=logits, axis=1),
       'probabilities': tf.nn.softmax(logits, name='softmax_tensor')
-  }
+  })
 
   if mode == tf.estimator.ModeKeys.PREDICT:
-    return tf.estimator.EstimatorSpec(
-        mode=mode,
-        predictions=predictions,
-        export_outputs={
-            'classify': tf.estimator.export.PredictOutput(predictions)
-        })
+    return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
   if mode == tf.estimator.ModeKeys.EVAL and FLAGS.display_tensors and (
       not FLAGS.use_tpu):
@@ -774,8 +721,7 @@ def main(unused_argv):
 
   if FLAGS.mode == 'eval':
     # Run evaluation when there is a new checkpoint
-    for checkpoint in evaluation.checkpoints_iterator(
-        FLAGS.model_dir, timeout=FLAGS.eval_timeout):
+    for checkpoint in evaluation.checkpoints_iterator(FLAGS.model_dir):
       tf.logging.info('Starting to evaluate.')
       try:
         start_timestamp = time.time()  # Includes compilation time
@@ -818,13 +764,7 @@ def main(unused_argv):
     inception_classifier.train(
         input_fn=imagenet_train.input_fn, steps=FLAGS.train_steps)
 
-  if FLAGS.export_dir is not None:
-    tf.logging.info('Starting to export model.')
-    inception_classifier.export_saved_model(
-        export_dir_base=FLAGS.export_dir,
-        serving_input_receiver_fn=image_serving_input_fn)
-
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)
-  app.run(main)
+  tf.app.run()

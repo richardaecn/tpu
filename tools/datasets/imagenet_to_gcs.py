@@ -51,7 +51,6 @@ import random
 import tarfile
 import urllib
 
-from absl import app
 from absl import flags
 import tensorflow as tf
 
@@ -474,4 +473,4 @@ def main(argv):  # pylint: disable=unused-argument
 
 
 if __name__ == '__main__':
-  app.run(main)
+  tf.app.run()
