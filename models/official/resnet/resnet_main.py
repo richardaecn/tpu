@@ -369,8 +369,16 @@ def resnet_model_fn(features, labels, mode, params):
 
   # Calculate loss, which includes classification loss and L2 regularization.
   one_hot_labels = tf.one_hot(labels, FLAGS.num_label_classes)
+
+  weights = tf.cast(FLAGS.weights, dtype=tf.float32)
+  weights = tf.expand_dims(weights, 0)
+  weights = tf.tile(weights, [tf.shape(one_hot_labels)[0], 1]) * one_hot_labels
+  weights = tf.reduce_sum(weights, axis=1)
+  weights = tf.expand_dims(weights, 1)
+  weights = tf.tile(weights, [1, FLAGS.num_label_classes])
+
   classification_loss = focal_loss(
-      one_hot_labels, logits, alpha, FLAGS.gamma)
+      one_hot_labels, logits, weights, FLAGS.gamma)
 
   # Add weight decay to the loss for non-batch-normalization variables.
   loss = classification_loss + FLAGS.weight_decay * tf.add_n(
@@ -555,6 +563,13 @@ def _select_tables_from_flags():
   ]
 
 def main(unused_argv):
+  img_num_per_cls = [int(line.strip() for line in open(
+      FLAGS.data_dir + '/img_num_per_cls.txt', 'r')]
+  effective_num = 1.0 - np.power(FLAGS.beta, img_num_per_cls)
+  weights = 1.0 / np.array(effective_num)
+  weights = weights / np.sum(weights) * FLAGS.num_label_classes
+  FLAGS.weights = weights
+
   tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
       FLAGS.tpu if (FLAGS.tpu or FLAGS.use_tpu) else '',
       zone=FLAGS.tpu_zone,
