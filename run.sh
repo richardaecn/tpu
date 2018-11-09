@@ -20,6 +20,7 @@ BETA=0.999
 GAMMA=1.0
 
 MODEL_DIR=${STORAGE_BUCKET}/${DATASET}_resnet${RESNET_DEPTH}_${BETA}_${GAMMA}
+IMG_NUM_PER_CLASS_FILE=data/${DATASET}/img_num_per_cls.txt
 
 python models/official/resnet/resnet_main.py \
   --tpu=${TPU_NAME} \
@@ -37,4 +38,5 @@ python models/official/resnet/resnet_main.py \
   --base_learning_rate=${LR} \
   --log_step_count_steps=${LOG_STEPS} \
   --beta=${BETA} \
-  --gamma=${GAMMA}
+  --gamma=${GAMMA} \
+  --img_num_per_cls_file=${IMG_NUM_PER_CLASS_FILE}

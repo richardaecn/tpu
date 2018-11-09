@@ -209,6 +209,10 @@ flags.DEFINE_float('poly_rate', default=0.0,
 flags.DEFINE_bool(
     'use_cache', default=True, help=('Enable cache for training input.'))
 
+flags.DEFINE_string(
+    'img_num_per_cls_file', default=None,
+    help=('File location for image number per class.'))
+
 # Parameters for class balanced focal loss
 flags.DEFINE_float(
     'beta', default=0.999,
@@ -228,20 +232,10 @@ LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
 # ImageNet
 MEAN_RGB = [0.485 * 255, 0.456 * 255, 0.406 * 255]
 STDDEV_RGB = [0.229 * 255, 0.224 * 255, 0.225 * 255]
-IMG_NUM_PER_CLASS = [int(line.strip()) for line in open(
-      'data/ILSVRC2012/img_num_per_cls.txt', 'r')]
 
 # # iNat
 # MEAN_RGB = [0.466 * 255, 0.471 * 255, 0.380 * 255]	
 # STDDEV_RGB = [0.195 * 255, 0.194 * 255, 0.192 * 255]
-# IMG_NUM_PER_CLASS = [int(line.strip()) for line in open(
-#       'data/inat2017/img_num_per_cls.txt', 'r')]
-
-# Normalized weights based on inverse number of effective data per class.
-EFFECTIVE_NUM = 1.0 - np.power(FLAGS.beta, IMG_NUM_PER_CLASS)
-WEIGHTS = 1.0 / np.array(EFFECTIVE_NUM)
-WEIGHTS = WEIGHTS / np.sum(WEIGHTS) * FLAGS.num_label_classes
-print(WEIGHTS)
 
 
 def learning_rate_schedule(current_epoch):
@@ -381,7 +375,14 @@ def resnet_model_fn(features, labels, mode, params):
   # Calculate loss, which includes classification loss and L2 regularization.
   one_hot_labels = tf.one_hot(labels, FLAGS.num_label_classes)
 
-  weights = tf.cast(WEIGHTS, dtype=tf.float32)
+  # Normalized weights based on inverse number of effective data per class.
+  img_num_per_cls = [int(line.strip()) for line in open(
+        FLAGS.img_num_per_cls_file, 'r')]
+  effective_num = 1.0 - np.power(FLAGS.beta, img_num_per_cls)
+  weights = 1.0 / np.array(effective_num)
+  weights = weights / np.sum(weights) * FLAGS.num_label_classes
+  print(weights)
+  weights = tf.cast(weights, dtype=tf.float32)
   weights = tf.expand_dims(weights, 0)
   weights = tf.tile(weights, [tf.shape(one_hot_labels)[0], 1]) * one_hot_labels
   weights = tf.reduce_sum(weights, axis=1)
