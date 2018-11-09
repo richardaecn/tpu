@@ -416,7 +416,7 @@ def resnet_model_fn(features, labels, mode, params):
       train_op = optimizer.minimize(loss, global_step)
 
     if not FLAGS.skip_host_call:
-      def host_call_fn(gs, loss, lr, ce):
+      def host_call_fn(gs, fl_loss, loss, lr, ce):
         """Training host call. Creates scalar summaries for training metrics.
 
         This function is executed on the CPU and should not directly reference
@@ -430,6 +430,7 @@ def resnet_model_fn(features, labels, mode, params):
 
         Args:
           gs: `Tensor with shape `[batch]` for the global_step.
+          fl_loss: `Tensor` with shape `[batch]` for the training focal loss.
           loss: `Tensor` with shape `[batch]` for the training loss.
           lr: `Tensor` with shape `[batch]` for the learning_rate.
           ce: `Tensor` with shape `[batch]` for the current_epoch.
@@ -445,6 +446,7 @@ def resnet_model_fn(features, labels, mode, params):
         with summary.create_file_writer(
             FLAGS.model_dir, max_queue=FLAGS.iterations_per_loop).as_default():
           with summary.always_record_summaries():
+            summary.scalar('focal_loss', fl_loss[0], step=gs)
             summary.scalar('loss', loss[0], step=gs)
             summary.scalar('learning_rate', lr[0], step=gs)
             summary.scalar('current_epoch', ce[0], step=gs)
@@ -457,11 +459,12 @@ def resnet_model_fn(features, labels, mode, params):
       # dimension. These Tensors are implicitly concatenated to
       # [params['batch_size']].
       gs_t = tf.reshape(global_step, [1])
+      fl_loss_t = tf.reshape(classification_loss, [1])
       loss_t = tf.reshape(loss, [1])
       lr_t = tf.reshape(learning_rate, [1])
       ce_t = tf.reshape(current_epoch, [1])
 
-      host_call = (host_call_fn, [gs_t, loss_t, lr_t, ce_t])
+      host_call = (host_call_fn, [gs_t, fl_loss_t, loss_t, lr_t, ce_t])
 
   else:
     train_op = None
@@ -566,6 +569,7 @@ def main(unused_argv):
   weights = 1.0 / np.array(effective_num)
   weights = weights / np.sum(weights) * FLAGS.num_label_classes
   FLAGS.weights = weights
+  print(FLAGS.weights)
 
   tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
       FLAGS.tpu if (FLAGS.tpu or FLAGS.use_tpu) else '',
