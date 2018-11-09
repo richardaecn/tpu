@@ -82,8 +82,8 @@ flags.DEFINE_string(
     help='One of {"train_and_eval", "train", "eval"}.')
 
 flags.DEFINE_integer(
-    'train_steps', default=112590,
-    help=('The number of steps to use for training. Default is 112590 steps'
+    'train_steps', default=112603,
+    help=('The number of steps to use for training. Default is 112603 steps'
           ' which is approximately 90 epochs at batch size 1024. This flag'
           ' should be adjusted according to the --train_batch_size flag.'))
 
@@ -195,10 +195,6 @@ flags.DEFINE_float(
     'weight_decay', default=1e-4,
     help=('Weight decay coefficiant for l2 regularization.'))
 
-flags.DEFINE_float(
-    'label_smoothing', default=0.0,
-    help=('Label smoothing parameter used in the softmax_cross_entropy'))
-
 flags.DEFINE_integer('log_step_count_steps', 64, 'The number of steps at '
                      'which the global step information is logged.')
 
@@ -212,6 +208,15 @@ flags.DEFINE_float('poly_rate', default=0.0,
 flags.DEFINE_bool(
     'use_cache', default=True, help=('Enable cache for training input.'))
 
+# Parameters for class balanced focal loss
+flags.DEFINE_float(
+    'beta', default=0.999,
+    help=('Beta for calculating number of effective data.'))
+
+flags.DEFINE_float(
+    'gamma', default=1.0,
+    help=('Focal loss: gamma.'))
+
 # Learning rate schedule
 LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
     (1.0, 5), (0.1, 30), (0.01, 60), (0.001, 80)
@@ -219,8 +224,13 @@ LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
 
 # The input tensor is in the range of [0, 255], we need to scale them to the
 # range of [0, 1]
+# ImageNet
 MEAN_RGB = [0.485 * 255, 0.456 * 255, 0.406 * 255]
 STDDEV_RGB = [0.229 * 255, 0.224 * 255, 0.225 * 255]
+
+# # iNat	
+# MEAN_RGB = [0.466 * 255, 0.471 * 255, 0.380 * 255]	
+# STDDEV_RGB = [0.195 * 255, 0.194 * 255, 0.192 * 255]
 
 
 def learning_rate_schedule(current_epoch):
@@ -247,6 +257,49 @@ def learning_rate_schedule(current_epoch):
     decay_rate = tf.where(current_epoch < start_epoch,
                           decay_rate, scaled_lr * mult)
   return decay_rate
+
+
+def focal_loss(labels, logits, alpha, gamma):
+  """Compute the focal loss between `logits` and the ground truth `labels`.
+
+  Focal loss = -alpha_t * (1-pt)^gamma * log(pt)
+  where pt is the probability of being classified to the true class.
+  pt = p (if true class), otherwise pt = 1 - p. p = sigmoid(logit).
+
+  Args:
+    labels: A float32 tensor of size [batch, num_classes].
+    logits: A float32 tensor of size [batch, num_classes].
+    alpha: A float32 tensor of size [batch_size]
+      specifying per-example weight for balanced cross entropy.
+    gamma: A float32 scalar modulating loss from hard and easy examples.
+  Returns:
+    focal_loss: A float32 scalar representing normalized total loss.
+  """
+  with tf.name_scope('focal_loss'):
+    logits = tf.cast(logits, dtype=tf.float32)
+    cross_entropy = tf.nn.sigmoid_cross_entropy_with_logits(
+        labels=labels, logits=logits)
+
+    # positive_label_mask = tf.equal(labels, 1.0)
+    # probs = tf.sigmoid(logits)
+    # probs_gt = tf.where(positive_label_mask, probs, 1.0 - probs)
+    # # With gamma < 1, the implementation could produce NaN during back prop.
+    # modulator = tf.pow(1.0 - probs_gt, gamma)
+
+    # A numerically stable implementation of modulator.
+    if gamma == 0.0:
+      modulator = 1.0
+    else:
+      modulator = tf.exp(-gamma * labels * logits - gamma * tf.log1p(
+          tf.exp(-1.0 * logits)))
+
+    loss = modulator * cross_entropy
+
+    weighted_loss = alpha * loss
+    focal_loss = tf.reduce_sum(weighted_loss)
+    # Normalize by the total number of positive samples.
+    focal_loss /= tf.reduce_sum(labels)
+  return focal_loss
 
 
 def resnet_model_fn(features, labels, mode, params):
@@ -301,7 +354,7 @@ def resnet_model_fn(features, labels, mode, params):
   if mode == tf.estimator.ModeKeys.PREDICT:
     predictions = {
         'classes': tf.argmax(logits, axis=1),
-        'probabilities': tf.nn.softmax(logits, name='softmax_tensor')
+        'probabilities': tf.sigmoid(logits, name='sigmoid_tensor')
     }
     return tf.estimator.EstimatorSpec(
         mode=mode,
@@ -314,17 +367,15 @@ def resnet_model_fn(features, labels, mode, params):
   # size flags (--train_batch_size or --eval_batch_size).
   batch_size = params['batch_size']   # pylint: disable=unused-variable
 
-  # Calculate loss, which includes softmax cross entropy and L2 regularization.
+  # Calculate loss, which includes classification loss and L2 regularization.
   one_hot_labels = tf.one_hot(labels, FLAGS.num_label_classes)
-  cross_entropy = tf.losses.softmax_cross_entropy(
-      logits=logits,
-      onehot_labels=one_hot_labels,
-      label_smoothing=FLAGS.label_smoothing)
+  classification_loss = focal_loss(
+      one_hot_labels, logits, alpha, FLAGS.gamma)
 
   # Add weight decay to the loss for non-batch-normalization variables.
-  loss = cross_entropy + FLAGS.weight_decay * tf.add_n(
+  loss = classification_loss + FLAGS.weight_decay * tf.add_n(
       [tf.nn.l2_loss(v) for v in tf.trainable_variables()
-       if 'batch_normalization' not in v.name])
+       if 'batch_normalization' not in v.name and 'dense/bias' not in v.name])
 
   host_call = None
   if mode == tf.estimator.ModeKeys.TRAIN:
@@ -357,7 +408,7 @@ def resnet_model_fn(features, labels, mode, params):
       train_op = optimizer.minimize(loss, global_step)
 
     if not FLAGS.skip_host_call:
-      def host_call_fn(gs, loss, lr, ce):
+      def host_call_fn(gs, fl_loss, loss, lr, ce):
         """Training host call. Creates scalar summaries for training metrics.
 
         This function is executed on the CPU and should not directly reference
@@ -370,7 +421,8 @@ def resnet_model_fn(features, labels, mode, params):
         element in the tuple passed to `host_call`.
 
         Args:
-          gs: `Tensor with shape `[batch]` for the global_step
+          gs: `Tensor with shape `[batch]` for the global_step.
+          fl_loss: `Tensor` with shape `[batch]` for the training focal loss.
           loss: `Tensor` with shape `[batch]` for the training loss.
           lr: `Tensor` with shape `[batch]` for the learning_rate.
           ce: `Tensor` with shape `[batch]` for the current_epoch.
@@ -386,6 +438,7 @@ def resnet_model_fn(features, labels, mode, params):
         with summary.create_file_writer(
             FLAGS.model_dir, max_queue=FLAGS.iterations_per_loop).as_default():
           with summary.always_record_summaries():
+            summary.scalar('focal_loss', fl_loss[0], step=gs)
             summary.scalar('loss', loss[0], step=gs)
             summary.scalar('learning_rate', lr[0], step=gs)
             summary.scalar('current_epoch', ce[0], step=gs)
@@ -398,11 +451,12 @@ def resnet_model_fn(features, labels, mode, params):
       # dimension. These Tensors are implicitly concatenated to
       # [params['batch_size']].
       gs_t = tf.reshape(global_step, [1])
+      fl_loss_t = tf.reshape(classification_loss, [1])
       loss_t = tf.reshape(loss, [1])
       lr_t = tf.reshape(learning_rate, [1])
       ce_t = tf.reshape(current_epoch, [1])
 
-      host_call = (host_call_fn, [gs_t, loss_t, lr_t, ce_t])
+      host_call = (host_call_fn, [gs_t, fl_loss_t, loss_t, lr_t, ce_t])
 
   else:
     train_op = None
@@ -610,8 +664,8 @@ def main(unused_argv):
       while current_step < FLAGS.train_steps:
         # Train for up to steps_per_eval number of steps.
         # At the end of training, a checkpoint will be written to --model_dir.
-        next_checkpoint = int(min(current_step + FLAGS.steps_per_eval,
-                              FLAGS.train_steps))
+        next_checkpoint = min(current_step + FLAGS.steps_per_eval,
+                              FLAGS.train_steps)
         resnet_classifier.train(
             input_fn=imagenet_train.input_fn, max_steps=next_checkpoint)
         current_step = next_checkpoint

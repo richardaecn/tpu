@@ -23,6 +23,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import numpy as np
 import tensorflow as tf
 
 BATCH_NORM_DECAY = 0.9
@@ -300,18 +301,17 @@ def resnet_v1_generator(block_fn, layers, num_classes,
         strides=2, is_training=is_training, name='block_group4',
         data_format=data_format)
 
-    # The activation is 7x7 so this is a global average pool.
-    # TODO(huangyp): reduce_mean will be faster.
-    pool_size = (inputs.shape[1], inputs.shape[2])
+    # Global average pooling based on the activation map size.
     inputs = tf.layers.average_pooling2d(
-        inputs=inputs, pool_size=pool_size, strides=1, padding='VALID',
-        data_format=data_format)
+        inputs=inputs, pool_size=inputs.get_shape()[1:3], strides=1,
+        padding='VALID', data_format=data_format)
     inputs = tf.identity(inputs, 'final_avg_pool')
     inputs = tf.reshape(
         inputs, [-1, 2048 if block_fn is bottleneck_block else 512])
     inputs = tf.layers.dense(
         inputs=inputs,
         units=num_classes,
+        bias_initializer=tf.constant_initializer(-np.log(num_classes - 1)),
         kernel_initializer=tf.random_normal_initializer(stddev=.01))
     inputs = tf.identity(inputs, 'final_dense')
     return inputs
