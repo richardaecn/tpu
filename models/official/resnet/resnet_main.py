@@ -561,7 +561,7 @@ def _select_tables_from_flags():
 
 def main(unused_argv):
   img_num_per_cls = [int(line.strip()) for line in open(
-      FLAGS.data_dir + '/img_num_per_cls.txt', 'r')]
+      'data/ILSVRC2012/img_num_per_cls.txt', 'r')]
   effective_num = 1.0 - np.power(FLAGS.beta, img_num_per_cls)
   weights = 1.0 / np.array(effective_num)
   weights = weights / np.sum(weights) * FLAGS.num_label_classes
