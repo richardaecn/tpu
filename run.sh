@@ -21,7 +21,7 @@ GAMMA=1.0
 
 MODEL_DIR=${STORAGE_BUCKET}/${DATASET}_resnet${RESNET_DEPTH}_${BETA}_${GAMMA}
 
-python resnet_main.py \
+python models/official/resnet/resnet_main.py \
   --tpu=${TPU_NAME} \
   --data_dir=${DATA_DIR} \
   --model_dir=${MODEL_DIR} \
