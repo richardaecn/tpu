@@ -229,13 +229,13 @@ LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
 
 # The input tensor is in the range of [0, 255], we need to scale them to the
 # range of [0, 1]
-# ImageNet
-MEAN_RGB = [0.485 * 255, 0.456 * 255, 0.406 * 255]
-STDDEV_RGB = [0.229 * 255, 0.224 * 255, 0.225 * 255]
+# # ImageNet
+# MEAN_RGB = [0.485 * 255, 0.456 * 255, 0.406 * 255]
+# STDDEV_RGB = [0.229 * 255, 0.224 * 255, 0.225 * 255]
 
-# # iNat
-# MEAN_RGB = [0.466 * 255, 0.471 * 255, 0.380 * 255]	
-# STDDEV_RGB = [0.195 * 255, 0.194 * 255, 0.192 * 255]
+# iNat
+MEAN_RGB = [0.466 * 255, 0.471 * 255, 0.380 * 255]	
+STDDEV_RGB = [0.195 * 255, 0.194 * 255, 0.192 * 255]
 
 
 def learning_rate_schedule(current_epoch):
