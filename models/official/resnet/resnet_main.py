@@ -381,7 +381,7 @@ def resnet_model_fn(features, labels, mode, params):
   effective_num = 1.0 - np.power(FLAGS.beta, img_num_per_cls)
   weights = 1.0 / np.array(effective_num)
   weights = weights / np.sum(weights) * FLAGS.num_label_classes
-  print(weights)
+
   weights = tf.cast(weights, dtype=tf.float32)
   weights = tf.expand_dims(weights, 0)
   weights = tf.tile(weights, [tf.shape(one_hot_labels)[0], 1]) * one_hot_labels

@@ -1,23 +1,11 @@
-r"""Script to download the Imagenet dataset and upload to gcs.
+r"""Script to convert dataset and upload to gcs.
 
-To run the script setup a virtualenv with the following libraries installed.
-- `gcloud`: Follow the instructions on
-  [cloud SDK docs](https://cloud.google.com/sdk/downloads) followed by
-  installing the python api using `pip install gcloud`.
-- `google-cloud-storage`: Install with `pip install google-cloud-storage`
-- `tensorflow`: Install with `pip install tensorflow`
-
-Once you have all the above libraries setup, you should register on the
-[Imagenet website](http://image-net.org/download-images) to get your
-username and access_key.
-
-Make sure you have around 300GB of disc space available on the machine where
-you're running this script. You can run the script using the following command.
 ```
-python dataset_to_gcs.py \
-  --project="TEST_PROJECT" \
-  --gcs_output_path="gs://TEST_BUCKET/IMAGENET_DIR" \
-  --local_scratch_dir="./imagenet" \
+py3 dataset_to_gcs.py \
+  --project=tpu-training-221714 \
+  --gcs_output_path=gs://tpu_training \
+  --local_scratch_dir=/media/yincui/HardDrive/data/inat2017/tfrecord \
+  --raw_data_dir=/media/yincui/HardDrive/data/inat2017
 ```
 """
 
