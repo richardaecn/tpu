@@ -1,7 +1,7 @@
 r"""Script to convert dataset and upload to gcs.
 
 ```
-py2 dataset_to_gcs.py \
+python dataset_to_gcs.py \
   --project=tpu-training-221714 \
   --gcs_output_path=gs://tpu_training \
   --local_scratch_dir=/media/yincui/HardDrive/data/inat2018/tfrecord \
